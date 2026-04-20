@@ -490,7 +490,7 @@ def fetch_dynamic_lot_sizes() -> dict[str, int]:
                                     lot_sizes[sym] = lot
                             except (ValueError, TypeError):
                                 continue
-                        break # Stop looking after finding and processing the correct table
+                        # We removed the 'break' here so it processes ALL tables on the page
     except Exception:
         # Silently revert to the fallback dictionary upon any failure
         pass
