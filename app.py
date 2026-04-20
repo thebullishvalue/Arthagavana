@@ -571,73 +571,59 @@ def compute_charges_for_leg(
     product: str,
     broker: BrokerConfig,
 ) -> ChargeResult:
-    """Compute all charges for a single round-trip (buy + sell) position."""
+    """Improved version: precise rates + broker-style 2-decimal rounding."""
     turnover = buy_value + sell_value
     r = ChargeResult()
 
-    # ── 1. Brokerage ────────────────────────────────────────────
-    if inst_type == "OPT":
-        # Options: one flat per side, if any side has value
+    if inst_type == "FUT":
+        b = min(buy_value * broker.fut_brok_pct, broker.fut_brok_max) if buy_value > 0 else 0
+        s = min(sell_value * broker.fut_brok_pct, broker.fut_brok_max) if sell_value > 0 else 0
+        r.brokerage = round(b + s, 2)
+    elif inst_type == "OPT":
         legs = (1 if buy_value > 0 else 0) + (1 if sell_value > 0 else 0)
-        r.brokerage = broker.opt_brok_flat * legs
-    elif inst_type == "FUT":
-        b_brok = min(buy_value * broker.fut_brok_pct, broker.fut_brok_max) if buy_value > 0 else 0
-        s_brok = min(sell_value * broker.fut_brok_pct, broker.fut_brok_max) if sell_value > 0 else 0
-        r.brokerage = b_brok + s_brok
-    else:  # EQ
-        if product == "DELIVERY":
-            b_brok = min(buy_value * broker.eq_del_brok_pct, broker.eq_del_brok_max) if buy_value > 0 else 0
-            s_brok = min(sell_value * broker.eq_del_brok_pct, broker.eq_del_brok_max) if sell_value > 0 else 0
-        else:  # INTRADAY
-            b_brok = min(buy_value * broker.eq_intra_brok_pct, broker.eq_intra_brok_max) if buy_value > 0 else 0
-            s_brok = min(sell_value * broker.eq_intra_brok_pct, broker.eq_intra_brok_max) if sell_value > 0 else 0
-        r.brokerage = b_brok + s_brok
-
-    # ── 2. STT (Securities Transaction Tax) — post Budget 2026, eff 1-Apr-26 ─
-    if inst_type == "FUT":
-        r.stt = sell_value * 0.0005        # 0.05% sell side (was 0.02% pre-Apr-26)
-    elif inst_type == "OPT":
-        r.stt = sell_value * 0.0015        # 0.15% on sell of premium (was 0.10%)
+        r.brokerage = round(broker.opt_brok_flat * legs, 2)
     else:
         if product == "DELIVERY":
-            r.stt = (buy_value + sell_value) * 0.001  # 0.10% both sides (unchanged)
-        else:  # INTRADAY
-            r.stt = sell_value * 0.00025   # 0.025% sell side (unchanged)
-    # STT is rounded to the nearest rupee (round half up) per Zerodha/CBDT
-    # convention: paise ≥ 50 → up, < 50 → down.
-    r.stt = math.floor(r.stt + 0.5)
-
-    # ── 3. Exchange Transaction Charges (NSE, current rate card) ────────────
-    if inst_type == "FUT":
-        r.exchange = turnover * 0.0000183  # 0.00183%
-    elif inst_type == "OPT":
-        r.exchange = turnover * 0.0003553  # 0.03553% on premium turnover
-    else:
-        r.exchange = turnover * 0.0000307  # 0.00307%
-
-    # ── 4. SEBI turnover fee ────────────────────────────────────
-    r.sebi = turnover * 0.000001          # ₹10 / crore = 0.0001%
-
-    # ── 5. Stamp Duty (buy side only) ───────────────────────────
-    if inst_type == "FUT":
-        r.stamp = buy_value * 0.00002     # 0.002%
-    elif inst_type == "OPT":
-        r.stamp = buy_value * 0.00003     # 0.003%
-    else:
-        if product == "DELIVERY":
-            r.stamp = buy_value * 0.00015 # 0.015%
+            b = min(buy_value * broker.eq_del_brok_pct, broker.eq_del_brok_max) if buy_value > 0 else 0
+            s = min(sell_value * broker.eq_del_brok_pct, broker.eq_del_brok_max) if sell_value > 0 else 0
         else:
-            r.stamp = buy_value * 0.00003 # 0.003%
-    # Stamp duty is rounded to the nearest rupee (same convention as STT).
-    r.stamp = math.floor(r.stamp + 0.5)
+            b = min(buy_value * broker.eq_intra_brok_pct, broker.eq_intra_brok_max) if buy_value > 0 else 0
+            s = min(sell_value * broker.eq_intra_brok_pct, broker.eq_intra_brok_max) if sell_value > 0 else 0
+        r.brokerage = round(b + s, 2)
 
-    # ── 6. IPFT (Investor Protection Fund — ₹0.01 per crore) ────────────────
-    # Very small: ₹0.01 / crore = 1e-9 of turnover.
-    if inst_type in ("FUT", "OPT"):
-        r.ipft = turnover * 1e-9
+    if inst_type == "FUT":
+        r.stt = math.floor(sell_value * 0.0005 + 0.5)
+    elif inst_type == "OPT":
+        r.stt = math.floor(sell_value * 0.0015 + 0.5)
+    else:
+        if product == "DELIVERY":
+            r.stt = math.floor((buy_value + sell_value) * 0.001 + 0.5)
+        else:
+            r.stt = math.floor(sell_value * 0.00025 + 0.5)
 
-    # ── 7. GST @ 18% on (brokerage + exchange + SEBI) ───────────
-    r.gst = 0.18 * (r.brokerage + r.exchange + r.sebi)
+    if inst_type == "FUT":
+        r.exchange = round(turnover * 0.000018299, 2)
+    elif inst_type == "OPT":
+        r.exchange = round(turnover * 0.000355299, 2)
+    else:
+        r.exchange = round(turnover * 0.000030699, 2)
+
+    r.sebi = round(turnover * 0.000001, 2)
+
+    if inst_type == "FUT":
+        r.stamp = round(buy_value * 0.00002, 2)
+    elif inst_type == "OPT":
+        r.stamp = round(buy_value * 0.00003, 2)
+    else:
+        if product == "DELIVERY":
+            r.stamp = round(buy_value * 0.00015, 2)
+        else:
+            r.stamp = round(buy_value * 0.00003, 2)
+
+    r.ipft = 0.0
+
+    taxable = r.brokerage + r.exchange + r.sebi
+    r.gst = round(0.18 * taxable, 2)
 
     return r
 
@@ -1060,6 +1046,8 @@ edited = st.data_editor(
         ),
         "Lot Size":    st.column_config.NumberColumn("Lot Size", min_value=1, width="small"),
         "Qty/Lots":    st.column_config.NumberColumn("Qty/Lots", min_value=0, width="small"),
+        "Buy Price":   st.column_config.NumberColumn("Buy Price", format="%.2f"),
+        "Sell Price":  st.column_config.NumberColumn("Sell Price", format="%.2f"),
         "Buy Value":   st.column_config.NumberColumn("Buy Value (₹)", format="%.2f"),
         "Sell Value":  st.column_config.NumberColumn("Sell Value (₹)", format="%.2f"),
         "P&L (Gross)": st.column_config.NumberColumn("P&L Gross (₹)", format="%.2f", disabled=True),
@@ -1068,8 +1056,19 @@ edited = st.data_editor(
     },
 )
 
-# Recompute P&L from buy/sell and update state
 edited = edited.copy()
+
+if "Buy Price" not in edited.columns:
+    edited["Buy Price"] = 0.0
+if "Sell Price" not in edited.columns:
+    edited["Sell Price"] = 0.0
+
+mask = (edited["Buy Price"] > 0) & (edited["Qty/Lots"] > 0)
+edited.loc[mask, "Buy Value"] = edited.loc[mask, "Buy Price"] * edited.loc[mask, "Qty/Lots"] * edited.loc[mask, "Lot Size"]
+
+mask = (edited["Sell Price"] > 0) & (edited["Qty/Lots"] > 0)
+edited.loc[mask, "Sell Value"] = edited.loc[mask, "Sell Price"] * edited.loc[mask, "Qty/Lots"] * edited.loc[mask, "Lot Size"]
+
 edited["P&L (Gross)"] = edited["Sell Value"] - edited["Buy Value"]
 st.session_state.positions_df = edited
 
