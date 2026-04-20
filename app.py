@@ -99,7 +99,7 @@ HEMREK_CSS = """
     color: var(--text-primary);
 }
 .block-container {
-    padding-top: 1.5rem !important;
+    padding-top: 3.5rem !important;
     padding-bottom: 3rem !important;
     max-width: 1400px !important;
 }
@@ -122,8 +122,10 @@ section[data-testid="stSidebar"] > div { padding-top: 1rem; }
     -webkit-text-fill-color: transparent;
     background-clip: text;
     letter-spacing: -0.03em;
-    line-height: 1;
+    line-height: 1.25;
+    padding-top: 0.4rem;
     margin: 0;
+    overflow: visible;
 }
 .hemrek-tagline {
     font-family: 'JetBrains Mono', monospace;
@@ -359,7 +361,11 @@ def fmt_inr(x: float, decimals: int = 2) -> str:
         return "—"
     sign = "-" if x < 0 else ""
     x = abs(x)
-    int_part, dec_part = f"{x:.{decimals}f}".split(".")
+    formatted = f"{x:.{decimals}f}"
+    if "." in formatted:
+        int_part, dec_part = formatted.split(".")
+    else:
+        int_part, dec_part = formatted, ""
     if len(int_part) <= 3:
         formatted_int = int_part
     else:
@@ -373,7 +379,9 @@ def fmt_inr(x: float, decimals: int = 2) -> str:
         if rest:
             groups.insert(0, rest)
         formatted_int = ",".join(groups) + "," + last3
-    return f"{sign}₹{formatted_int}.{dec_part}" if decimals > 0 else f"{sign}₹{formatted_int}"
+    if decimals > 0 and dec_part:
+        return f"{sign}₹{formatted_int}.{dec_part}"
+    return f"{sign}₹{formatted_int}"
 
 
 def fmt_inr_compact(x: float) -> str:
@@ -952,7 +960,7 @@ with upload_col1:
         label_visibility="collapsed",
     )
 with upload_col2:
-    use_demo = st.button("Use sample data", use_container_width=True)
+    use_demo = st.button("Use sample data", width='stretch')
 
 if up is not None:
     try:
@@ -1015,7 +1023,7 @@ st.markdown(
 
 edited = st.data_editor(
     st.session_state.positions_df,
-    use_container_width=True,
+    width='stretch',
     num_rows="dynamic",
     key="pos_editor",
     column_config={
@@ -1245,7 +1253,7 @@ with tabs[0]:
         yaxis=dict(gridcolor="rgba(255,255,255,0.05)", zerolinecolor="rgba(255,255,255,0.15)"),
         xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     st.markdown(
         '<div class="hemrek-section-title">Ledger</div>',
@@ -1327,7 +1335,7 @@ with tabs[1]:
         ],
         subset=["P&L Gross", "Net P&L"],
     )
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    st.dataframe(styled, width='stretch', hide_index=True)
 
     # Contribution chart
     st.markdown(
@@ -1359,7 +1367,7 @@ with tabs[1]:
         ),
         yaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
     )
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width='stretch')
 
 
 # ── TAB 3: Charge Anatomy ─────────────────────────────────────────────
@@ -1410,7 +1418,7 @@ with tabs[2]:
                 font=dict(family="JetBrains Mono, monospace", color="#d4af37"),
             )],
         )
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, width='stretch')
 
     with col_bar:
         sorted_buckets = sorted(charge_buckets.items(), key=lambda x: x[1], reverse=True)
@@ -1432,7 +1440,7 @@ with tabs[2]:
             xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
             yaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
         )
-        st.plotly_chart(fig4, use_container_width=True)
+        st.plotly_chart(fig4, width='stretch')
 
     st.markdown(
         '<div class="hemrek-section-title">Rate Card Applied</div>',
@@ -1688,7 +1696,7 @@ with tabs[4]:
             data=pos_csv,
             file_name="arthgavana_positions.csv",
             mime="text/csv",
-            use_container_width=True,
+            width='stretch',
         )
     with exp_c2:
         sum_csv = summary_df.to_csv(index=False).encode("utf-8")
@@ -1697,7 +1705,7 @@ with tabs[4]:
             data=sum_csv,
             file_name="arthgavana_summary.csv",
             mime="text/csv",
-            use_container_width=True,
+            width='stretch',
         )
 
     # Excel with both sheets
@@ -1730,7 +1738,7 @@ with tabs[4]:
         data=xlsx_buf.getvalue(),
         file_name="arthgavana_report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
+        width='stretch',
     )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1748,7 +1756,7 @@ with tabs[4]:
             ],
             subset=["Amount (₹)"],
         ),
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
     )
 
