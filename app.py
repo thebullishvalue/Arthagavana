@@ -41,6 +41,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import requests
 
 # ══════════════════════════════════════════════════════════════════════
 #  PAGE CONFIG
@@ -424,11 +425,11 @@ def fmt_pct(x: float, decimals: int = 2) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  INSTRUMENT DETECTION + LOT SIZE LIBRARY
+#  INSTRUMENT DETECTION + DYNAMIC LOT SIZE LIBRARY
 # ══════════════════════════════════════════════════════════════════════
 
-# Conservative recent NSE F&O lot sizes (user-editable in app).
-LOT_SIZES: dict[str, int] = {
+# Conservative recent NSE F&O lot sizes (Used as a fallback if web-scraping fails).
+FALLBACK_LOT_SIZES: dict[str, int] = {
     "NIFTY": 75, "BANKNIFTY": 35, "FINNIFTY": 65, "MIDCPNIFTY": 140,
     "SENSEX": 20, "BANKEX": 30, "NIFTYNXT50": 25,
     "RELIANCE": 500, "TCS": 175, "HDFCBANK": 550, "INFY": 400,
@@ -450,6 +451,52 @@ LOT_SIZES: dict[str, int] = {
     "PAYTM": 900, "ZOMATO": 3350, "IRCTC": 800, "LICHSGFIN": 1100,
     "INDUSINDBK": 500, "ADANIGREEN": 400, "TATAPOWER": 1350, "DMART": 150,
 }
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_dynamic_lot_sizes() -> dict[str, int]:
+    """
+    Fetch real-time F&O lot sizes from Dhan.co.
+    Falls back to a static list if network or parsing fails to guarantee app stability.
+    """
+    lot_sizes = FALLBACK_LOT_SIZES.copy()
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        }
+        res = requests.get("https://dhan.co/nse-fno-lot-size/", headers=headers, timeout=10)
+        
+        if res.status_code == 200:
+            # Load HTML tables into Pandas DataFrames
+            dfs = pd.read_html(io.StringIO(res.text))
+            
+            # Find the correct table containing Symbol and Lot Size columns
+            for df in dfs:
+                cols = [str(c).lower().strip() for c in df.columns]
+                
+                if 'symbol' in cols:
+                    sym_idx = cols.index('symbol')
+                    # Find the first column specifying 'lot'
+                    lot_idx = next((i for i, c in enumerate(cols) if 'lot' in c), -1)
+                    
+                    if lot_idx != -1:
+                        for _, row in df.iterrows():
+                            try:
+                                raw_sym = str(row.iloc[sym_idx]).strip().upper()
+                                # Clean potential appended garbage like "BANKNIFTY B S"
+                                sym = raw_sym.split()[0]
+                                lot = int(float(row.iloc[lot_idx]))
+                                
+                                if sym and lot > 0:
+                                    lot_sizes[sym] = lot
+                            except (ValueError, TypeError):
+                                continue
+                        break # Stop looking after finding and processing the correct table
+    except Exception:
+        # Silently revert to the fallback dictionary upon any failure
+        pass
+
+    return lot_sizes
 
 
 def detect_instrument_type(symbol: str) -> str:
@@ -490,11 +537,15 @@ def extract_underlying(symbol: str) -> str:
 
 
 def guess_lot_size(symbol: str, inst_type: str) -> int:
-    """Guess lot size from symbol. Equity = 1."""
+    """Guess lot size from dynamically fetched dictionary. Equity = 1."""
     if inst_type == "EQ":
         return 1
     underlying = extract_underlying(symbol)
-    return LOT_SIZES.get(underlying, 1)
+    
+    # Retrieve the dynamically populated dictionary
+    dynamic_lots = fetch_dynamic_lot_sizes()
+    
+    return dynamic_lots.get(underlying, 1)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -571,59 +622,73 @@ def compute_charges_for_leg(
     product: str,
     broker: BrokerConfig,
 ) -> ChargeResult:
-    """Improved version: precise rates + broker-style 2-decimal rounding."""
+    """Compute all charges for a single round-trip (buy + sell) position."""
     turnover = buy_value + sell_value
     r = ChargeResult()
 
-    if inst_type == "FUT":
-        b = min(buy_value * broker.fut_brok_pct, broker.fut_brok_max) if buy_value > 0 else 0
-        s = min(sell_value * broker.fut_brok_pct, broker.fut_brok_max) if sell_value > 0 else 0
-        r.brokerage = round(b + s, 2)
-    elif inst_type == "OPT":
+    # ── 1. Brokerage ────────────────────────────────────────────
+    if inst_type == "OPT":
+        # Options: one flat per side, if any side has value
         legs = (1 if buy_value > 0 else 0) + (1 if sell_value > 0 else 0)
-        r.brokerage = round(broker.opt_brok_flat * legs, 2)
+        r.brokerage = broker.opt_brok_flat * legs
+    elif inst_type == "FUT":
+        b_brok = min(buy_value * broker.fut_brok_pct, broker.fut_brok_max) if buy_value > 0 else 0
+        s_brok = min(sell_value * broker.fut_brok_pct, broker.fut_brok_max) if sell_value > 0 else 0
+        r.brokerage = b_brok + s_brok
+    else:  # EQ
+        if product == "DELIVERY":
+            b_brok = min(buy_value * broker.eq_del_brok_pct, broker.eq_del_brok_max) if buy_value > 0 else 0
+            s_brok = min(sell_value * broker.eq_del_brok_pct, broker.eq_del_brok_max) if sell_value > 0 else 0
+        else:  # INTRADAY
+            b_brok = min(buy_value * broker.eq_intra_brok_pct, broker.eq_intra_brok_max) if buy_value > 0 else 0
+            s_brok = min(sell_value * broker.eq_intra_brok_pct, broker.eq_intra_brok_max) if sell_value > 0 else 0
+        r.brokerage = b_brok + s_brok
+
+    # ── 2. STT (Securities Transaction Tax) — post Budget 2026, eff 1-Apr-26 ─
+    if inst_type == "FUT":
+        r.stt = sell_value * 0.0005        # 0.05% sell side (was 0.02% pre-Apr-26)
+    elif inst_type == "OPT":
+        r.stt = sell_value * 0.0015        # 0.15% on sell of premium (was 0.10%)
     else:
         if product == "DELIVERY":
-            b = min(buy_value * broker.eq_del_brok_pct, broker.eq_del_brok_max) if buy_value > 0 else 0
-            s = min(sell_value * broker.eq_del_brok_pct, broker.eq_del_brok_max) if sell_value > 0 else 0
-        else:
-            b = min(buy_value * broker.eq_intra_brok_pct, broker.eq_intra_brok_max) if buy_value > 0 else 0
-            s = min(sell_value * broker.eq_intra_brok_pct, broker.eq_intra_brok_max) if sell_value > 0 else 0
-        r.brokerage = round(b + s, 2)
+            r.stt = (buy_value + sell_value) * 0.001  # 0.10% both sides (unchanged)
+        else:  # INTRADAY
+            r.stt = sell_value * 0.00025   # 0.025% sell side (unchanged)
+    # STT is rounded to the nearest rupee (round half up) per Zerodha/CBDT
+    # convention: paise ≥ 50 → up, < 50 → down.
+    r.stt = math.floor(r.stt + 0.5)
 
+    # ── 3. Exchange Transaction Charges (NSE, current rate card) ────────────
     if inst_type == "FUT":
-        r.stt = math.floor(sell_value * 0.0005 + 0.5)
+        r.exchange = turnover * 0.0000183  # 0.00183%
     elif inst_type == "OPT":
-        r.stt = math.floor(sell_value * 0.0015 + 0.5)
+        r.exchange = turnover * 0.0003553  # 0.03553% on premium turnover
+    else:
+        r.exchange = turnover * 0.0000307  # 0.00307%
+
+    # ── 4. SEBI turnover fee ────────────────────────────────────
+    r.sebi = turnover * 0.000001          # ₹10 / crore = 0.0001%
+
+    # ── 5. Stamp Duty (buy side only) ───────────────────────────
+    if inst_type == "FUT":
+        r.stamp = buy_value * 0.00002     # 0.002%
+    elif inst_type == "OPT":
+        r.stamp = buy_value * 0.00003     # 0.003%
     else:
         if product == "DELIVERY":
-            r.stt = math.floor((buy_value + sell_value) * 0.001 + 0.5)
+            r.stamp = buy_value * 0.00015 # 0.015%
         else:
-            r.stt = math.floor(sell_value * 0.00025 + 0.5)
+            r.stamp = buy_value * 0.00003 # 0.003%
+    # Stamp duty is rounded to the nearest rupee (same convention as STT).
+    r.stamp = math.floor(r.stamp + 0.5)
 
-    if inst_type == "FUT":
-        r.exchange = round(turnover * 0.000018299, 2)
-    elif inst_type == "OPT":
-        r.exchange = round(turnover * 0.000355299, 2)
-    else:
-        r.exchange = round(turnover * 0.000030699, 2)
+    # ── 6. IPFT (Investor Protection Fund — ₹0.01 per crore) ────────────────
+    # Very small: ₹0.01 / crore = 1e-9 of turnover.
+    if inst_type in ("FUT", "OPT"):
+        r.ipft = turnover * 1e-9
 
-    r.sebi = round(turnover * 0.000001, 2)
-
-    if inst_type == "FUT":
-        r.stamp = round(buy_value * 0.00002, 2)
-    elif inst_type == "OPT":
-        r.stamp = round(buy_value * 0.00003, 2)
-    else:
-        if product == "DELIVERY":
-            r.stamp = round(buy_value * 0.00015, 2)
-        else:
-            r.stamp = round(buy_value * 0.00003, 2)
-
-    r.ipft = 0.0
-
-    taxable = r.brokerage + r.exchange + r.sebi
-    r.gst = round(0.18 * taxable, 2)
+    # ── 7. GST @ 18% on (brokerage + exchange + SEBI) ───────────
+    r.gst = 0.18 * (r.brokerage + r.exchange + r.sebi)
 
     return r
 
@@ -1046,8 +1111,6 @@ edited = st.data_editor(
         ),
         "Lot Size":    st.column_config.NumberColumn("Lot Size", min_value=1, width="small"),
         "Qty/Lots":    st.column_config.NumberColumn("Qty/Lots", min_value=0, width="small"),
-        "Buy Price":   st.column_config.NumberColumn("Buy Price", format="%.2f"),
-        "Sell Price":  st.column_config.NumberColumn("Sell Price", format="%.2f"),
         "Buy Value":   st.column_config.NumberColumn("Buy Value (₹)", format="%.2f"),
         "Sell Value":  st.column_config.NumberColumn("Sell Value (₹)", format="%.2f"),
         "P&L (Gross)": st.column_config.NumberColumn("P&L Gross (₹)", format="%.2f", disabled=True),
@@ -1056,19 +1119,8 @@ edited = st.data_editor(
     },
 )
 
+# Recompute P&L from buy/sell and update state
 edited = edited.copy()
-
-if "Buy Price" not in edited.columns:
-    edited["Buy Price"] = 0.0
-if "Sell Price" not in edited.columns:
-    edited["Sell Price"] = 0.0
-
-mask = (edited["Buy Price"] > 0) & (edited["Qty/Lots"] > 0)
-edited.loc[mask, "Buy Value"] = edited.loc[mask, "Buy Price"] * edited.loc[mask, "Qty/Lots"] * edited.loc[mask, "Lot Size"]
-
-mask = (edited["Sell Price"] > 0) & (edited["Qty/Lots"] > 0)
-edited.loc[mask, "Sell Value"] = edited.loc[mask, "Sell Price"] * edited.loc[mask, "Qty/Lots"] * edited.loc[mask, "Lot Size"]
-
 edited["P&L (Gross)"] = edited["Sell Value"] - edited["Buy Value"]
 st.session_state.positions_df = edited
 
