@@ -603,6 +603,9 @@ def compute_charges_for_leg(
             r.stt = (buy_value + sell_value) * 0.001  # 0.10% both sides (unchanged)
         else:  # INTRADAY
             r.stt = sell_value * 0.00025   # 0.025% sell side (unchanged)
+    # STT is rounded to the nearest rupee (round half up) per Zerodha/CBDT
+    # convention: paise ≥ 50 → up, < 50 → down.
+    r.stt = math.floor(r.stt + 0.5)
 
     # ── 3. Exchange Transaction Charges (NSE, current rate card) ────────────
     if inst_type == "FUT":
@@ -625,6 +628,8 @@ def compute_charges_for_leg(
             r.stamp = buy_value * 0.00015 # 0.015%
         else:
             r.stamp = buy_value * 0.00003 # 0.003%
+    # Stamp duty is rounded to the nearest rupee (same convention as STT).
+    r.stamp = math.floor(r.stamp + 0.5)
 
     # ── 6. IPFT (Investor Protection Fund — ₹0.01 per crore) ────────────────
     # Very small: ₹0.01 / crore = 1e-9 of turnover.
