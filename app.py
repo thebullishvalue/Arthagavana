@@ -452,7 +452,6 @@ FALLBACK_LOT_SIZES: dict[str, int] = {
     "INDUSINDBK": 500, "ADANIGREEN": 400, "TATAPOWER": 1350, "DMART": 150,
 }
 
-@st.cache_data(ttl=86400, show_spinner=False)
 def fetch_dynamic_lot_sizes() -> dict[str, int]:
     """
     Fetch real-time F&O lot sizes from Dhan.co.
@@ -537,15 +536,15 @@ def extract_underlying(symbol: str) -> str:
 
 
 def guess_lot_size(symbol: str, inst_type: str) -> int:
-    """Guess lot size from dynamically fetched dictionary. Equity = 1."""
+    """Guess lot size from session state dictionary. Equity = 1."""
     if inst_type == "EQ":
         return 1
     underlying = extract_underlying(symbol)
     
-    # Retrieve the dynamically populated dictionary
-    dynamic_lots = fetch_dynamic_lot_sizes()
+    # Retrieve the dictionary from session state
+    lot_dict = st.session_state.get("lot_sizes", FALLBACK_LOT_SIZES)
     
-    return dynamic_lots.get(underlying, 1)
+    return lot_dict.get(underlying, 1)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -902,6 +901,8 @@ if "positions_df" not in st.session_state:
     st.session_state.positions_df = None
 if "raw_df" not in st.session_state:
     st.session_state.raw_df = None
+if "lot_sizes" not in st.session_state:
+    st.session_state.lot_sizes = FALLBACK_LOT_SIZES.copy()
 
 # ══════════════════════════════════════════════════════════════════════
 #  HEADER
@@ -994,6 +995,13 @@ with st.sidebar:
         ["FY 2026-27 (AY 2027-28)", "FY 2025-26 (AY 2026-27)"],
         index=0,
     )
+
+    st.markdown('<div class="hemrek-section-title">Market Data</div>', unsafe_allow_html=True)
+    if st.button("🔄 Refresh F&O Lot Sizes", use_container_width=True):
+        with st.spinner("Fetching from Dhan.co..."):
+            new_lots = fetch_dynamic_lot_sizes()
+            st.session_state.lot_sizes = new_lots
+            st.success(f"Loaded {len(new_lots)} lot sizes!")
 
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown(
