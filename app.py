@@ -593,24 +593,24 @@ def compute_charges_for_leg(
             s_brok = min(sell_value * broker.eq_intra_brok_pct, broker.eq_intra_brok_max) if sell_value > 0 else 0
         r.brokerage = b_brok + s_brok
 
-    # ── 2. STT (Securities Transaction Tax) ─────────────────────
+    # ── 2. STT (Securities Transaction Tax) — post Budget 2026, eff 1-Apr-26 ─
     if inst_type == "FUT":
-        r.stt = sell_value * 0.0002        # 0.02% sell side
+        r.stt = sell_value * 0.0005        # 0.05% sell side (was 0.02% pre-Apr-26)
     elif inst_type == "OPT":
-        r.stt = sell_value * 0.001         # 0.10% on sell of premium
+        r.stt = sell_value * 0.0015        # 0.15% on sell of premium (was 0.10%)
     else:
         if product == "DELIVERY":
-            r.stt = (buy_value + sell_value) * 0.001  # 0.10% both sides
+            r.stt = (buy_value + sell_value) * 0.001  # 0.10% both sides (unchanged)
         else:  # INTRADAY
-            r.stt = sell_value * 0.00025   # 0.025% sell side
+            r.stt = sell_value * 0.00025   # 0.025% sell side (unchanged)
 
-    # ── 3. Exchange Transaction Charges (NSE) ───────────────────
+    # ── 3. Exchange Transaction Charges (NSE, current rate card) ────────────
     if inst_type == "FUT":
-        r.exchange = turnover * 0.0000173  # 0.00173%
+        r.exchange = turnover * 0.0000183  # 0.00183%
     elif inst_type == "OPT":
-        r.exchange = turnover * 0.0003503  # 0.03503% on premium turnover
+        r.exchange = turnover * 0.0003553  # 0.03553% on premium turnover
     else:
-        r.exchange = turnover * 0.0000297  # 0.00297%
+        r.exchange = turnover * 0.0000307  # 0.00307%
 
     # ── 4. SEBI turnover fee ────────────────────────────────────
     r.sebi = turnover * 0.000001          # ₹10 / crore = 0.0001%
@@ -626,10 +626,10 @@ def compute_charges_for_leg(
         else:
             r.stamp = buy_value * 0.00003 # 0.003%
 
-    # ── 6. IPFT (Investor Protection Fund) ──────────────────────
-    # Very small: 0.0001% for F&O, 0.0001% equity (included)
+    # ── 6. IPFT (Investor Protection Fund — ₹0.01 per crore) ────────────────
+    # Very small: ₹0.01 / crore = 1e-9 of turnover.
     if inst_type in ("FUT", "OPT"):
-        r.ipft = turnover * 0.000001
+        r.ipft = turnover * 1e-9
 
     # ── 7. GST @ 18% on (brokerage + exchange + SEBI) ───────────
     r.gst = 0.18 * (r.brokerage + r.exchange + r.sebi)
@@ -1469,11 +1469,13 @@ with tabs[2]:
 | Charge | Equity Delivery | Equity Intraday | Futures | Options |
 |--------|----------------|-----------------|---------|---------|
 | Brokerage | Free (Zerodha etc.) | ₹20 / 0.03% (min) | ₹20 / 0.03% (min) | ₹20 flat / leg |
-| STT | 0.10% both sides | 0.025% sell | 0.02% sell | 0.10% sell premium |
-| Exchange Txn (NSE) | 0.00297% | 0.00297% | 0.00173% | 0.03503% of premium |
+| STT | 0.10% both sides | 0.025% sell | 0.05% sell | 0.15% sell premium |
+| Exchange Txn (NSE) | 0.00307% | 0.00307% | 0.00183% | 0.03553% of premium |
 | SEBI | 0.0001% (₹10/cr) | 0.0001% | 0.0001% | 0.0001% |
 | Stamp Duty (buy) | 0.015% | 0.003% | 0.002% | 0.003% |
 | GST | 18% on (brokerage + exch + SEBI) | same | same | same |
+
+*F&O STT rates reflect the Budget 2026 hike effective 1 April 2026 (futures 0.02% → 0.05%, options 0.10% → 0.15%).*
 """
     st.markdown(rate_md)
 
