@@ -103,7 +103,25 @@ HEMREK_CSS = """
     padding-bottom: 3rem !important;
     max-width: 1400px !important;
 }
-#MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; }
+/* Keep the Streamlit header transparent so the sidebar toggle and
+   collapse button remain clickable, but hide the menu and deploy chrome. */
+header[data-testid="stHeader"] {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    height: auto !important;
+}
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+.stDeployButton, [data-testid="stDecoration"] { display: none !important; }
+/* Force sidebar toggle button to be visible and on top */
+button[data-testid="stSidebarCollapseButton"],
+button[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
+    visibility: visible !important;
+    display: flex !important;
+    color: var(--accent-gold) !important;
+    z-index: 999999 !important;
+}
 
 /* ── Sidebar ───────────────────────────────────────────────── */
 section[data-testid="stSidebar"] {
