@@ -494,7 +494,15 @@ def fetch_nse_lot_sizes() -> dict[str, int]:
         import NseKit
         get = NseKit.Nse()
         lots_df = get.fno_eom_lot_size()
+        if lots_df is None or (hasattr(lots_df, 'empty') and lots_df.empty):
+            st.error("❌ Error fetching F&O Lot Size: NSE API returned empty data")
+            return LOT_SIZES
         lots_df.columns = [c.strip() for c in lots_df.columns]
+    except Exception as e:
+        st.error(f"❌ Error fetching F&O Lot Size: {e}")
+        return LOT_SIZES
+    
+    try:
         lot_col = "APR-26"
         sym_col = "SYMBOL"
         if lot_col in lots_df.columns:
@@ -510,8 +518,9 @@ def fetch_nse_lot_sizes() -> dict[str, int]:
                         LOT_SIZES[sym] = lot
                 except (ValueError, TypeError):
                     pass
-    except ImportError:
-        pass
+    except Exception as e:
+        st.error(f"❌ Error parsing lot sizes: {e}")
+    
     return LOT_SIZES
 
 
