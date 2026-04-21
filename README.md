@@ -10,28 +10,51 @@ the exact net P&L after every statutory charge and income-tax treatment.
 
 ```bash
 pip install -r requirements.txt
-streamlit run arthgavana.py
+streamlit run app.py
 ```
+
+## Features
+
+- **CSV Upload** — Parse broker positions (Zerodha Kite, Upstox, or generic CSV)
+- **Dynamic Lot Sizes** — Fetches live from NSE API, editable fallback dictionary
+- **WRCI Indicator** — Wave-Regime Composite Index for multi-symbol scanning
+- **Net P&L** — Post-charges, post-tax reconciliation
+- **Tax Planning** — Marginal slab calculator with New/Old regime support
 
 ## What it computes
 
-**Charges stack** (per-leg, Indian FY 2025-26 rates):
+**Charges stack** (per-leg, Indian FY 2026-27 rates):
 
 | Charge          | Equity Delivery       | Equity Intraday     | Futures          | Options             |
 |-----------------|-----------------------|---------------------|------------------|---------------------|
 | Brokerage       | Free / % (broker)     | ₹20 or 0.03% (min)  | ₹20 or 0.03%     | ₹20 flat / leg      |
-| STT             | 0.10% both sides      | 0.025% sell         | 0.02% sell       | 0.10% sell premium  |
-| Exchange (NSE)  | 0.00297%              | 0.00297%            | 0.00173%         | 0.03503% premium    |
+| STT             | 0.10% both sides      | 0.025% sell         | 0.05% sell       | 0.15% sell premium  |
+| Exchange (NSE)  | 0.00307%              | 0.00307%            | 0.00183%         | 0.03553% premium    |
 | SEBI            | ₹10 / crore           | same                | same             | same                |
 | Stamp Duty (buy)| 0.015%                | 0.003%              | 0.002%           | 0.003%              |
 | GST             | 18% on (brok+exch+SEBI) each                                             |
 
-**Income tax** (New Regime FY 2025-26 slabs, marginal on existing income):
+**Income tax** (New Regime FY 2026-27 slabs, marginal on existing income):
 - F&O → Non-speculative business income @ slab
 - Intraday → Speculative business income @ slab
 - STCG equity (Sec 111A) → 20% flat
 - LTCG equity (Sec 112A) → 12.5% above ₹1.25L exemption
 - 4% Health & Education Cess on all
+
+## Lot Sizes
+
+The app maintains a dictionary of NSE F&O lot sizes. On first load, it attempts to fetch live from NSE API via NseKit. Falls back to pre-populated dictionary with 218 symbols. You can:
+- Click **Refresh from NSE** to re-fetch
+- Click **Edit** to manually add/modify lot sizes
+
+## WRCI Indicator
+
+Wave-Regime Composite Index — combines:
+- Hull Moving Average (HMA) of HLC3
+- Channel Index (CI) with Ehlers smoothing
+- Volume-normalized trend
+
+Scan Nifty 50 symbols for long/short signals with configurable parameters.
 
 ## Brokers supported
 
