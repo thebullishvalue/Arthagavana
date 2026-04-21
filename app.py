@@ -41,7 +41,9 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import requests
+
+import yfinance as yf
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ══════════════════════════════════════════════════════════════════════
 #  PAGE CONFIG
@@ -425,77 +427,100 @@ def fmt_pct(x: float, decimals: int = 2) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  INSTRUMENT DETECTION + DYNAMIC LOT SIZE LIBRARY
+#  INSTRUMENT DETECTION + LOT SIZE LIBRARY
 # ══════════════════════════════════════════════════════════════════════
 
-# Conservative recent NSE F&O lot sizes (Used as a fallback if web-scraping fails).
-FALLBACK_LOT_SIZES: dict[str, int] = {
-    "NIFTY": 75, "BANKNIFTY": 35, "FINNIFTY": 65, "MIDCPNIFTY": 140,
-    "SENSEX": 20, "BANKEX": 30, "NIFTYNXT50": 25,
+LOT_SIZES: dict[str, int] = {
+    "NIFTY": 65, "BANKNIFTY": 30, "FINNIFTY": 60, "MIDCPNIFTY": 120,
+    "NIFTYNXT50": 25,
     "RELIANCE": 500, "TCS": 175, "HDFCBANK": 550, "INFY": 400,
     "ICICIBANK": 700, "SBIN": 750, "HINDUNILVR": 300, "ITC": 1600,
-    "BHARTIARTL": 475, "KOTAKBANK": 400, "LT": 300, "AXISBANK": 625,
-    "MARUTI": 50, "ASIANPAINT": 200, "WIPRO": 2500, "NESTLEIND": 25,
-    "ULTRACEMCO": 50, "HCLTECH": 350, "M&M": 350, "TITAN": 175,
-    "BAJFINANCE": 125, "BAJAJFINSV": 500, "POWERGRID": 1800, "NTPC": 1500,
-    "SUNPHARMA": 350, "TATAMOTORS": 1425, "TATASTEEL": 5500, "JSWSTEEL": 675,
-    "COALINDIA": 2100, "ONGC": 9375, "IOC": 9750, "BPCL": 1800, "HINDALCO": 1400,
-    "ADANIENT": 300, "ADANIPORTS": 850,
-    "EICHERMOT": 175, "HEROMOTOCO": 300, "BAJAJ-AUTO": 75, "TVSMOTOR": 350,
-    "ICICIPRULI": 925, "ICICIGI": 275, "HDFCLIFE": 1100, "SBILIFE": 375,
-    "MANAPPURAM": 6000, "MUTHOOTFIN": 375, "PFC": 3000, "RECLTD": 2700,
-    "SUPREMEIND": 400, "PIDILITIND": 250, "UBL": 400, "DABUR": 1250,
-    "DIVISLAB": 125, "CIPLA": 650, "DRREDDY": 500, "APOLLOHOSP": 125,
-    "HAVELLS": 500, "BATAINDIA": 375, "BIOCON": 2400, "IDEA": 70000,
-    "VEDL": 1150, "GAIL": 3500, "GRASIM": 400, "PNB": 8000, "BANKBARODA": 2925,
-    "PAYTM": 900, "ZOMATO": 3350, "IRCTC": 800, "LICHSGFIN": 1100,
-    "INDUSINDBK": 500, "ADANIGREEN": 400, "TATAPOWER": 1350, "DMART": 150,
+    "BHARTIARTL": 475, "KOTAKBANK": 2000, "LT": 175, "AXISBANK": 625,
+    "MARUTI": 50, "ASIANPAINT": 250, "WIPRO": 3000, "NESTLEIND": 500,
+    "ULTRACEMCO": 50, "HCLTECH": 350, "M&M": 200, "TITAN": 175,
+    "BAJFINANCE": 750, "BAJAJFINSV": 250, "POWERGRID": 1900, "NTPC": 1500,
+    "SUNPHARMA": 350, "TATAMOTORS": 625, "TATASTEEL": 5500, "JSWSTEEL": 675,
+    "COALINDIA": 1350, "ONGC": 2250, "IOC": 4875, "BPCL": 1975, "HINDALCO": 700,
+    "ADANIENT": 309, "ADANIPORTS": 475,
+    "EICHERMOT": 100, "HEROMOTOCO": 150, "BAJAJ-AUTO": 75, "TVSMOTOR": 175,
+    "ICICIPRULI": 925, "ICICIGI": 325, "HDFCLIFE": 1100, "SBILIFE": 375,
+    "MANAPPURAM": 3000, "MUTHOOTFIN": 275, "PFC": 1300, "RECLTD": 1400,
+    "SUPREMEIND": 175, "PIDILITIND": 500, "DABUR": 1250,
+    "DIVISLAB": 100, "CIPLA": 375, "DRREDDY": 625, "APOLLOHOSP": 125,
+    "HAVELLS": 500, "BIOCON": 2500, "IDEA": 71475,
+    "VEDL": 1150, "GAIL": 3150, "GRASIM": 250, "PNB": 8000, "BANKBARODA": 2925,
+    "PAYTM": 725, "LICHSGFIN": 1000,
+    "INDUSINDBK": 700, "ADANIGREEN": 600, "TATAPOWER": 1450, "DMART": 150,
+    "360ONE": 500, "ABB": 125, "ALKEM": 125, "AMBER": 100, "AMBUJACEM": 1050,
+    "ANGELONE": 2500, "APLAPOLLO": 350, "ASTRAL": 425, "AUBANK": 1000,
+    "AUROPHARMA": 550, "ADANIENSOL": 675, "BAJAJHLDNG": 50, "BANDHANBNK": 3600,
+    "BHARATFORG": 500, "BOSCHLTD": 25, "CANBK": 6750, "CHOLAFIN": 625,
+    "COLPAL": 225, "CROMPTON": 1800, "EXIDEIND": 1800, "FEDERALBNK": 5000,
+    "FORTIS": 775, "GLENMARK": 375, "BEL": 1425, "GODREJPROP": 275, "HAL": 150,
+    "HDFCAMC": 300, "BHEL": 2625, "CAMS": 750, "CGPOWER": 850,
+    "HINDPETRO": 2025, "CONCOR": 1250, "CUMMINSIND": 200, "IREDA": 3450,
+    "DALBHARAT": 325, "DELHIVERY": 2075, "IRFC": 4250, "DIXON": 50,
+    "DLF": 825, "JINDALSTEL": 625, "JIOFIN": 2350, "ETERNAL": 2425,
+    "KAYNES": 100, "BANKINDIA": 5200, "KEI": 175, "BDL": 350,
+    "KPITTECH": 425, "LAURUSLABS": 850, "HINDZINC": 1225, "HUDCO": 2775,
+    "IDFCFIRSTB": 9275, "INDIANB": 1000, "INOXWIND": 3575, "BLUESTARCO": 325,
+    "LICI": 700, "LODHA": 450, "BSE": 375, "JUBLFOOD": 1250, "KFINTECH": 500,
+    "LTF": 2250, "CDSL": 475, "LTM": 150, "LUPIN": 425, "MANKIND": 225,
+    "MARICO": 1200, "MCX": 625, "MOTHERSON": 6150, "NATIONALUM": 3750,
+    "NAUKRI": 375, "NMDC": 6750, "NYKAA": 3125, "MAXHEALTH": 525,
+    "COFORGE": 375, "PETRONET": 1900, "MAZDOCK": 200, "PNBHOUSING": 650,
+    "POLICYBZR": 350, "POLYCAB": 125, "PREMIERENE": 575, "MFSL": 400,
+    "SAMMAANCAP": 4300, "SHRIRAMFIN": 825, "SOLARINDS": 50, "SONACOMS": 1225,
+    "SRF": 200, "NBCC": 6500, "NHPC": 6400, "SWIGGY": 1300, "TATACONSUM": 550,
+    "TATAELXSI": 100, "NUVAMA": 500, "OBEROIRLTY": 350, "TATATECH": 800,
+    "OIL": 1400, "TIINDIA": 200, "TORNTPOWER": 425, "UNITDSPR": 400,
+    "UNOMINDA": 550, "UPL": 1355, "VBL": 1125, "VOLTAS": 375,
+    "WAAREEENER": 175, "ZYDUSLIFE": 900, "PGEL": 950, "JSWENERGY": 1000,
+    "POWERINDIA": 50, "PRESTIGE": 450, "RVNL": 1525, "SBICARD": 800,
+    "SIEMENS": 175, "OFSS": 75, "PAGEIND": 15, "PHOENIXLTD": 350,
+    "SUZLON": 9025, "RBLBANK": 3175, "GMRAIRPORT": 6975, "SHREECEM": 25,
+    "TRENT": 100, "UNIONBANK": 4425, "TMPV": 800, "YESBANK": 31100,
+    "ASHOKLEY": 5000, "GODREJCP": 500, "PATANJALI": 900, "PERSISTENT": 100,
+    "INDHOTEL": 1000, "PPLPHARMA": 2625, "KALYANKJIL": 1175, "TECHM": 600,
+    "SAIL": 4700, "MPHASIS": 275, "TORNTPHARM": 250, "ADANIPOWER": 3550,
+    "COCHINSHIP": 400, "FORCEMOT": 25, "GODFRYPHLP": 275, "HYUNDAI": 275,
+    "MOTILALOFS": 775, "NAM-INDIA": 625, "VMM": 4850,
 }
 
-def fetch_dynamic_lot_sizes() -> dict[str, int]:
-    """
-    Fetch real-time F&O lot sizes from Dhan.co.
-    Falls back to a static list if network or parsing fails to guarantee app stability.
-    """
-    lot_sizes = FALLBACK_LOT_SIZES.copy()
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-        }
-        res = requests.get("https://dhan.co/nse-fno-lot-size/", headers=headers, timeout=10)
-        
-        if res.status_code == 200:
-            # Load HTML tables into Pandas DataFrames
-            dfs = pd.read_html(io.StringIO(res.text))
-            
-            # Find the correct table containing Symbol and Lot Size columns
-            for df in dfs:
-                cols = [str(c).lower().strip() for c in df.columns]
-                
-                if 'symbol' in cols:
-                    sym_idx = cols.index('symbol')
-                    # Find the first column specifying 'lot'
-                    lot_idx = next((i for i, c in enumerate(cols) if 'lot' in c), -1)
-                    
-                    if lot_idx != -1:
-                        for _, row in df.iterrows():
-                            try:
-                                raw_sym = str(row.iloc[sym_idx]).strip().upper()
-                                # Clean potential appended garbage like "BANKNIFTY B S"
-                                sym = raw_sym.split()[0]
-                                lot = int(float(row.iloc[lot_idx]))
-                                
-                                if sym and lot > 0:
-                                    lot_sizes[sym] = lot
-                            except (ValueError, TypeError):
-                                continue
-                        # We removed the 'break' here so it processes ALL tables on the page
-    except Exception:
-        # Silently revert to the fallback dictionary upon any failure
-        pass
 
-    return lot_sizes
+def fetch_nse_lot_sizes() -> dict[str, int]:
+    """Fetch NSE F&O lot sizes using NseKit and update LOT_SIZES."""
+    try:
+        import NseKit
+        get = NseKit.Nse()
+        lots_df = get.fno_eom_lot_size()
+        lots_df.columns = [c.strip() for c in lots_df.columns]
+        lot_col = "APR-26"
+        sym_col = "SYMBOL"
+        if lot_col in lots_df.columns:
+            lots_df = lots_df[[sym_col, lot_col]].copy()
+            lots_df.columns = ["symbol", "lot"]
+            lots_df = lots_df[lots_df["symbol"].notna()]
+            lots_df = lots_df[lots_df["symbol"].astype(str).str.strip() != "Symbol"]
+            for _, row in lots_df.iterrows():
+                sym = str(row["symbol"]).strip().upper()
+                try:
+                    lot = int(float(row["lot"]))
+                    if sym and lot > 0:
+                        LOT_SIZES[sym] = lot
+                except (ValueError, TypeError):
+                    pass
+    except ImportError:
+        pass
+    return LOT_SIZES
+
+
+def get_lot_sizes() -> dict[str, int]:
+    """Get lot sizes (fetches from NSE once on first call)."""
+    if "lot_sizes_fetched" not in st.session_state:
+        st.session_state.lot_sizes_fetched = True
+        fetch_nse_lot_sizes()
+    return LOT_SIZES
 
 
 def detect_instrument_type(symbol: str) -> str:
@@ -536,15 +561,11 @@ def extract_underlying(symbol: str) -> str:
 
 
 def guess_lot_size(symbol: str, inst_type: str) -> int:
-    """Guess lot size from session state dictionary. Equity = 1."""
+    """Guess lot size from symbol. Equity = 1."""
     if inst_type == "EQ":
         return 1
     underlying = extract_underlying(symbol)
-    
-    # Retrieve the dictionary from session state
-    lot_dict = st.session_state.get("lot_sizes", FALLBACK_LOT_SIZES)
-    
-    return lot_dict.get(underlying, 1)
+    return get_lot_sizes().get(underlying, 1)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -894,6 +915,208 @@ def build_editable_positions(raw_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ══════════════════════════════════════════════════════════════════════
+#  WAVEREGIME COMPOSITE INDEX (WRCI) — Indicator Implementation
+# ══════════════════════════════════════════════════════════════════════
+
+@dataclass
+class WRCIConfig:
+    reg_len: int = 20
+    wt_n1: int = 10
+    wt_n2: int = 21
+    ob_level1: int = 80
+    ob_level2: int = 40
+    os_level1: int = -80
+    os_level2: int = -40
+
+
+def compute_wrci(df: pd.DataFrame, config: WRCIConfig = None) -> pd.DataFrame:
+    """Compute Wave-Regime Composite Index indicator.
+    
+    Returns DataFrame with composite_line, composite_signal, long_cond, short_cond
+    """
+    if config is None:
+        config = WRCIConfig()
+    
+    df = df.copy()
+    
+    if len(df) < max(config.reg_len, config.wt_n2 * 2):
+        return pd.DataFrame()
+    
+    high = df['High'].values
+    low = df['Low'].values
+    close = df['Close'].values
+    volume = df['Volume'].values
+    
+    hlc3 = (high + low + close) / 3
+    
+    hma_p = pd.DataFrame({'value': hlc3}).ewm(span=15, adjust=False).mean()['value'].values
+    hma_p = pd.DataFrame({'value': hma_p}).ewm(span=15, adjust=False).mean()['value'].values
+    
+    vol_ewm = pd.DataFrame({'value': volume}).ewm(span=15, adjust=False).mean()['value'].values
+    
+    trend = np.zeros(len(df))
+    voltrend = np.zeros(len(df))
+    
+    for i in range(config.reg_len, len(df)):
+        trend_val = 0
+        voltrend_val = 0
+        for j in range(config.reg_len + 1):
+            if hma_p[i-j] > hma_p[i-j-1]:
+                trend_val += 1
+            else:
+                trend_val -= 1
+                
+            if vol_ewm[i-j] > vol_ewm[i-j-1]:
+                voltrend_val += 1
+            else:
+                voltrend_val -= 1
+        
+        trend[i] = trend_val
+        voltrend[i] = voltrend_val
+    
+    coeff = 10 / config.reg_len
+    trend = trend * coeff
+    voltrend = voltrend * coeff
+    
+    norm_trend = trend * 10
+    
+    ap = hlc3
+    esa = pd.Series(ap).ewm(span=config.wt_n1, adjust=False).mean().values
+    d = pd.Series(np.abs(ap - esa)).ewm(span=config.wt_n1, adjust=False).mean().values
+    ci = np.where(d != 0, (ap - esa) / (0.015 * d), 0)
+    wt1 = pd.Series(ci).ewm(span=config.wt_n2, adjust=False).mean().values
+    
+    composite_line = (wt1 + norm_trend) / 2
+    
+    composite_signal = pd.Series(composite_line).rolling(window=4).mean().values
+    
+    vol_multiplier = (voltrend + 10) / 20
+    
+    composite_hist = (composite_line - composite_signal) * vol_multiplier
+    
+    long_cond = np.zeros(len(df), dtype=bool)
+    short_cond = np.zeros(len(df), dtype=bool)
+    
+    for i in range(1, len(df)):
+        if composite_line[i] > composite_signal[i] and composite_line[i-1] <= composite_signal[i-1]:
+            long_cond[i] = True
+        if composite_line[i] < composite_signal[i] and composite_line[i-1] >= composite_signal[i-1]:
+            short_cond[i] = True
+    
+    result = pd.DataFrame({
+        'Date': df['Date'] if 'Date' in df.columns else df.index,
+        'composite_line': composite_line,
+        'composite_signal': composite_signal,
+        'composite_hist': composite_hist,
+        'long_cond': long_cond,
+        'short_cond': short_cond,
+        'wt1': wt1,
+        'norm_trend': norm_trend,
+    })
+    
+    return result
+
+
+NIFTY_50_SYMBOLS = [
+    "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "SBIN", "HINDUNILVR", "ITC",
+    "BHARTIARTL", "KOTAKBANK", "LT", "AXISBANK", "MARUTI", "ASIANPAINT", "WIPRO", "NESTLEIND",
+    "ULTRACEMCO", "HCLTECH", "M&M", "TITAN", "BAJFINANCE", "BAJAJFINSV", "POWERGRID", "NTPC",
+    "SUNPHARMA", "TATAMOTORS", "TATASTEEL", "JSWSTEEL", "COALINDIA", "ONGC", "IOC", "BPCL",
+    "HINDALCO", "ADANIENT", "ADANIPORTS", "EICHERMOT", "HEROMOTOCO", "BAJAJ-AUTO", "TVSMOTOR",
+    "CIPLA", "DRREDDY", "APOLLOHOSP", "HAVELLS", "BATAINDIA", "BIOCON", "VEDL", "GAIL",
+    "GRASIM", "PNB", "BANKBARODA", "INDUSINDBK", "TATAPOWER", "ADANIGREEN", "DMART", "LICI",
+]
+
+
+def fetch_and_compute(symbol: str, period: str = "6mo") -> dict:
+    """Fetch data and compute WRCI for a single symbol."""
+    try:
+        ticker = yf.Ticker(f"{symbol}.NS")
+        df = ticker.history(period=period, interval="1d")
+        
+        if df.empty or len(df) < 50:
+            return {'symbol': symbol, 'error': 'No data'}
+        
+        df = df.reset_index()
+        if 'Date' not in df.columns:
+            df['Date'] = df.index
+        
+        config = WRCIConfig()
+        wrci = compute_wrci(df, config)
+        
+        if wrci.empty:
+            return {'symbol': symbol, 'error': 'Indicator calculation failed'}
+        
+        return {
+            'symbol': symbol,
+            'wrci': wrci,
+            'last_close': df['Close'].iloc[-1] if len(df) > 0 else None,
+        }
+    except Exception as e:
+        return {'symbol': symbol, 'error': str(e)}
+
+
+def scan_wrci_signals(symbols: list[str], max_workers: int = 10) -> dict:
+    """Scan multiple symbols for WRCI long_cond signals."""
+    results = {
+        'today': [],
+        '1_day_ago': [],
+        '2_days_ago': [],
+        '3_days_ago': [],
+        'within_5_days': [],
+        'errors': [],
+    }
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(fetch_and_compute, sym): sym for sym in symbols}
+        
+        for future in as_completed(futures):
+            try:
+                data = future.result()
+                symbol = data.get('symbol')
+                
+                if 'error' in data:
+                    results['errors'].append({'symbol': symbol, 'error': data['error']})
+                    continue
+                
+                wrci = data.get('wrci')
+                if wrci is None or wrci.empty:
+                    results['errors'].append({'symbol': symbol, 'error': 'No WRCI data'})
+                    continue
+                
+                last_close = data.get('last_close')
+                
+                signal_dates = wrci[wrci['long_cond'] == True]['Date'].tolist()
+                
+                if len(signal_dates) > 0:
+                    last_signal_date = signal_dates[-1]
+                    days_since_signal = (wrci['Date'].iloc[-1] - last_signal_date).days if hasattr(last_signal_date, 'days') else 0
+                    
+                    signal_info = {
+                        'symbol': symbol,
+                        'last_close': last_close,
+                        'signal_date': last_signal_date,
+                    }
+                    
+                    if days_since_signal == 0:
+                        results['today'].append(signal_info)
+                    elif days_since_signal == 1:
+                        results['1_day_ago'].append(signal_info)
+                    elif days_since_signal == 2:
+                        results['2_days_ago'].append(signal_info)
+                    elif days_since_signal == 3:
+                        results['3_days_ago'].append(signal_info)
+                    
+                    if days_since_signal <= 5:
+                        results['within_5_days'].append(signal_info)
+                        
+            except Exception as e:
+                results['errors'].append({'symbol': futures[future], 'error': str(e)})
+    
+    return results
+
+
+# ══════════════════════════════════════════════════════════════════════
 #  APP STATE
 # ══════════════════════════════════════════════════════════════════════
 
@@ -901,8 +1124,6 @@ if "positions_df" not in st.session_state:
     st.session_state.positions_df = None
 if "raw_df" not in st.session_state:
     st.session_state.raw_df = None
-if "lot_sizes" not in st.session_state:
-    st.session_state.lot_sizes = FALLBACK_LOT_SIZES.copy()
 
 # ══════════════════════════════════════════════════════════════════════
 #  HEADER
@@ -996,12 +1217,17 @@ with st.sidebar:
         index=0,
     )
 
-    st.markdown('<div class="hemrek-section-title">Market Data</div>', unsafe_allow_html=True)
-    if st.button("🔄 Refresh F&O Lot Sizes", use_container_width=True):
-        with st.spinner("Fetching from Dhan.co..."):
-            new_lots = fetch_dynamic_lot_sizes()
-            st.session_state.lot_sizes = new_lots
-            st.success(f"Loaded {len(new_lots)} lot sizes!")
+    # Lot Sizes (dynamic from NSE API)
+    st.markdown('<div class="hemrek-section-title">Lot Sizes</div>', unsafe_allow_html=True)
+    col_ls1, col_ls2 = st.columns([1, 1])
+    with col_ls1:
+        if st.button("↻ Refresh from NSE", use_container_width=True, help="Fetch latest lot sizes from NSE API"):
+            with st.spinner("Fetching..."):
+                fetch_nse_lot_sizes()
+            st.rerun()
+    with col_ls2:
+        if st.button("✎ Edit", use_container_width=True):
+            st.session_state.show_lot_editor = True
 
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown(
@@ -1015,6 +1241,45 @@ with st.sidebar:
         "</div>",
         unsafe_allow_html=True,
     )
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  LOT SIZE EDITOR (modal)
+# ══════════════════════════════════════════════════════════════════════
+
+if st.session_state.get("show_lot_editor", False):
+    st.markdown(
+        '<div class="hemrek-section-title">Lot Size Editor</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="hemrek-subtitle">'
+        "Edit lot sizes for F&O instruments. Changes are saved to session state. "
+        "Click Refresh to fetch from NSE API."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    lot_sizes = get_lot_sizes()
+    lot_df = pd.DataFrame(
+        [{"Symbol": k, "Lot Size": v} for k, v in sorted(lot_sizes.items())]
+    )
+    edited_lots = st.data_editor(
+        lot_df, num_rows="dynamic", key="lot_editor",
+        column_config={
+            "Symbol": st.column_config.TextColumn("Symbol", width="medium"),
+            "Lot Size": st.column_config.NumberColumn(
+                "Lot Size", min_value=1, max_value=1000000, step=1, width="small",
+            ),
+        },
+    )
+    if st.button("💾 Save Lot Sizes"):
+        new_lots = dict(zip(edited_lots["Symbol"], edited_lots["Lot Size"].astype(int)))
+        LOT_SIZES.clear()
+        LOT_SIZES.update(new_lots)
+        st.success(f"Saved {len(new_lots)} lot sizes")
+        st.session_state.show_lot_editor = False
+        st.rerun()
+    st.markdown("<hr>", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1843,6 +2108,165 @@ with tabs[4]:
         width='stretch',
         hide_index=True,
     )
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  WRCI SCANNER SECTION
+# ══════════════════════════════════════════════════════════════════════
+
+st.markdown("<hr>", unsafe_allow_html=True)
+st.markdown(
+    '<div class="hemrek-section-title">WRCI Indicator Scanner</div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<div class="hemrek-subtitle">'
+    "Wave-Regime Composite Index — Scan Nifty 50 stocks for long_cond (bullish crossover) signals. "
+    "Shows stocks with signals today, 1-3 days ago, and within 5 days."
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+scan_col1, scan_col2, scan_col3 = st.columns([2, 1, 1])
+
+with scan_col1:
+    scan_mode = st.selectbox(
+        "Scan Mode",
+        ["Nifty 50", "Custom Symbols"],
+        label_visibility="collapsed",
+    )
+
+custom_symbols = ""
+if scan_mode == "Custom Symbols":
+    with scan_col1:
+        custom_symbols = st.text_area(
+            "Enter symbols (comma separated, e.g. RELIANCE, TCS, INFY)",
+            value="RELIANCE, TCS, HDFCBANK, INFY, ICICIBANK",
+            label_visibility="collapsed",
+            height=68,
+        )
+
+with scan_col2:
+    scan_btn = st.button("Run Analysis", width='stretch')
+
+with scan_col3:
+    st.markdown(
+        '<div style="padding-top:8px;"><div class="caption">Fetches 6mo data per stock</div></div>',
+        unsafe_allow_html=True,
+    )
+
+if scan_btn:
+    if scan_mode == "Nifty 50":
+        symbols_to_scan = NIFTY_50_SYMBOLS
+    else:
+        symbols_to_scan = [s.strip().upper() for s in custom_symbols.split(',') if s.strip()]
+    
+    if not symbols_to_scan:
+        st.error("Please enter at least one symbol to scan.")
+    else:
+        with st.spinner(f"Scanning {len(symbols_to_scan)} symbols..."):
+            scan_results = scan_wrci_signals(symbols_to_scan)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        sig_col1, sig_col2, sig_col3, sig_col4, sig_col5 = st.columns(5)
+        
+        with sig_col1:
+            count_today = len(scan_results['today'])
+            st.markdown(
+                f'<div class="hk-metric">'
+                f'<div class="hk-metric-label">TODAY</div>'
+                f'<div class="hk-metric-value gold">{count_today}</div>'
+                f'<div class="hk-metric-sub">long_cond</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with sig_col2:
+            count_1d = len(scan_results['1_day_ago'])
+            st.markdown(
+                f'<div class="hk-metric">'
+                f'<div class="hk-metric-label">1 DAY AGO</div>'
+                f'<div class="hk-metric-value gold">{count_1d}</div>'
+                f'<div class="hk-metric-sub">long_cond</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with sig_col3:
+            count_2d = len(scan_results['2_days_ago'])
+            st.markdown(
+                f'<div class="hk-metric">'
+                f'<div class="hk-metric-label">2 DAYS AGO</div>'
+                f'<div class="hk-metric-value gold">{count_2d}</div>'
+                f'<div class="hk-metric-sub">long_cond</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with sig_col4:
+            count_3d = len(scan_results['3_days_ago'])
+            st.markdown(
+                f'<div class="hk-metric">'
+                f'<div class="hk-metric-label">3 DAYS AGO</div>'
+                f'<div class="hk-metric-value gold">{count_3d}</div>'
+                f'<div class="hk-metric-sub">long_cond</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with sig_col5:
+            count_5d = len(scan_results['within_5_days'])
+            st.markdown(
+                f'<div class="hk-metric">'
+                f'<div class="hk-metric-label">WITHIN 5 DAYS</div>'
+                f'<div class="hk-metric-value gold">{count_5d}</div>'
+                f'<div class="hk-metric-sub">long_cond</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        if scan_results['within_5_days']:
+            st.markdown(
+                '<div class="hemrek-section-title">Signals Within 5 Days</div>',
+                unsafe_allow_html=True,
+            )
+            
+            signals_data = []
+            for sig in scan_results['within_5_days']:
+                signal_date = sig['signal_date']
+                if hasattr(signal_date, 'strftime'):
+                    date_str = signal_date.strftime('%Y-%m-%d')
+                else:
+                    date_str = str(signal_date)
+                
+                days_ago = (pd.Timestamp.now() - pd.Timestamp(signal_date)).days if hasattr(pd.Timestamp(signal_date), 'days') else 'N/A'
+                
+                signals_data.append({
+                    "Symbol": sig['symbol'],
+                    "Last Close": f"₹{sig['last_close']:.2f}" if sig['last_close'] else "—",
+                    "Signal Date": date_str,
+                    "Days Ago": days_ago,
+                })
+            
+            signals_df = pd.DataFrame(signals_data)
+            signals_df = signals_df.sort_values('Days Ago')
+            
+            st.dataframe(
+                signals_df.style.format({"Last Close": lambda x: x})
+                .set_properties(**{
+                    "background-color": "#15151f",
+                    "color": "#f8fafc",
+                    "border-color": "rgba(255,255,255,0.06)",
+                }),
+                width='stretch',
+                hide_index=True,
+            )
+        else:
+            st.info("No long_cond signals found within the last 5 days.")
+        
+        if scan_results['errors']:
+            with st.expander(f"Errors ({len(scan_results['errors'])})"):
+                for err in scan_results['errors']:
+                    st.caption(f"{err['symbol']}: {err['error']}")
 
 
 # ══════════════════════════════════════════════════════════════════════
