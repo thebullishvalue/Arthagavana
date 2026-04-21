@@ -821,6 +821,8 @@ def parse_positions_csv(raw: bytes) -> pd.DataFrame:
     """
     text = raw.decode("utf-8", errors="ignore")
     df = pd.read_csv(io.StringIO(text))
+    if df is None or df.empty:
+        raise ValueError("Empty or invalid CSV file")
     df.columns = [c.strip() for c in df.columns]
 
     # Normalise common header variations.
@@ -1312,6 +1314,8 @@ with upload_col2:
 if up is not None:
     try:
         raw = up.read()
+        if not raw or len(raw) == 0:
+            raise ValueError("Empty file uploaded")
         raw_df = parse_positions_csv(raw)
         st.session_state.raw_df = raw_df
         st.session_state.positions_df = build_editable_positions(raw_df)
