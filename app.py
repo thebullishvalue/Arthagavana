@@ -439,7 +439,7 @@ LOT_SIZES: dict[str, int] = {
     "MARUTI": 50, "ASIANPAINT": 250, "WIPRO": 3000, "NESTLEIND": 500,
     "ULTRACEMCO": 50, "HCLTECH": 350, "M&M": 200, "TITAN": 175,
     "BAJFINANCE": 750, "BAJAJFINSV": 250, "POWERGRID": 1900, "NTPC": 1500,
-    "SUNPHARMA": 350, "TATAMOTORS": 625, "TATASTEEL": 5500, "JSWSTEEL": 675,
+    "SUNPHARMA": 350, "TATAMOTORS": 625, "TATASTEEL": 2750, "JSWSTEEL": 675,
     "COALINDIA": 1350, "ONGC": 2250, "IOC": 4875, "BPCL": 1975, "HINDALCO": 700,
     "ADANIENT": 309, "ADANIPORTS": 475,
     "EICHERMOT": 100, "HEROMOTOCO": 150, "BAJAJ-AUTO": 75, "TVSMOTOR": 175,
@@ -510,7 +510,7 @@ def fetch_nse_lot_sizes() -> dict[str, int]:
 
         lot_col = None
         for col in lots_df.columns:
-            if col != sym_col and col.strip() and not col.startswith("Unnamed"):
+            if col.upper() not in ("SYMBOL", "UNDERLYING") and col.strip() and not col.startswith("Unnamed"):
                 lot_col = col
                 break
 
