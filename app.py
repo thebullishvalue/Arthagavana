@@ -1141,15 +1141,13 @@ with st.sidebar:
             unsafe_allow_html=True
         )
 
-    col_ls1, col_ls2 = st.columns([2.5, 1])
-    with col_ls1:
-        if st.button("↻ Refresh from NSE", use_container_width=True, help="Fetch latest lot sizes from NSE API"):
-            with st.spinner("Fetching..."):
-                fetch_nse_lot_sizes()
-            st.rerun()
-    with col_ls2:
-        if st.button("✎ Edit", use_container_width=True):
-            st.session_state.show_lot_editor = True
+    if st.button("↻ Refresh from NSE", use_container_width=True, help="Fetch latest lot sizes from NSE API"):
+        with st.spinner("Fetching..."):
+            fetch_nse_lot_sizes()
+        st.rerun()
+
+    if st.button("✎ Edit Lot Sizes", use_container_width=True):
+        st.session_state.show_lot_editor = True
 
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown(
