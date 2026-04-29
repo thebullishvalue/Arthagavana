@@ -501,26 +501,39 @@ def fetch_nse_lot_sizes() -> dict[str, int]:
     except Exception as e:
         st.error(f"❌ Error fetching F&O Lot Size: {e}")
         return LOT_SIZES
-    
+
     try:
-        lot_col = "APR-26"
         sym_col = "SYMBOL"
-        if lot_col in lots_df.columns:
-            lots_df = lots_df[[sym_col, lot_col]].copy()
-            lots_df.columns = ["symbol", "lot"]
-            lots_df = lots_df[lots_df["symbol"].notna()]
-            lots_df = lots_df[lots_df["symbol"].astype(str).str.strip() != "Symbol"]
-            for _, row in lots_df.iterrows():
-                sym = str(row["symbol"]).strip().upper()
-                try:
-                    lot = int(float(row["lot"]))
-                    if sym and lot > 0:
-                        LOT_SIZES[sym] = lot
-                except (ValueError, TypeError):
-                    pass
+        if sym_col not in lots_df.columns:
+            st.error("❌ SYMBOL column not found in NSE F&O data")
+            return LOT_SIZES
+
+        lot_col = None
+        for col in lots_df.columns:
+            if col != sym_col and col.strip() and not col.startswith("Unnamed"):
+                lot_col = col
+                break
+
+        if not lot_col:
+            st.error("❌ No lot size column found in NSE F&O data")
+            return LOT_SIZES
+
+        lots_df = lots_df[[sym_col, lot_col]].copy()
+        lots_df.columns = ["symbol", "lot"]
+        lots_df = lots_df[lots_df["symbol"].notna()]
+        lots_df = lots_df[lots_df["symbol"].astype(str).str.strip() != "Symbol"]
+        for _, row in lots_df.iterrows():
+            sym = str(row["symbol"]).strip().upper()
+            try:
+                lot = int(float(row["lot"]))
+                if sym and lot > 0:
+                    LOT_SIZES[sym] = lot
+            except (ValueError, TypeError):
+                pass
+        st.success(f"✅ Updated {len([k for k in LOT_SIZES if k])} lot sizes from NSE (using column: {lot_col})")
     except Exception as e:
         st.error(f"❌ Error parsing lot sizes: {e}")
-    
+
     return LOT_SIZES
 
 
