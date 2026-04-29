@@ -157,14 +157,19 @@ section[data-testid="stSidebar"] > div { padding-top: 1rem; }
     margin-top: 0.35rem;
 }
 .hemrek-section-title {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.78rem;
-    color: var(--accent-gold);
-    letter-spacing: 0.22em;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.82rem;
+    color: var(--text-primary);
+    font-weight: 600;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    margin: 2rem 0 0.9rem 0;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid var(--border-accent);
+    margin: 1.8rem 0 1rem 0;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.hemrek-section-title-accent {
+    color: var(--accent-gold);
+    border-bottom-color: var(--border-accent);
 }
 .hemrek-subtitle {
     font-family: 'Outfit', sans-serif;
@@ -294,23 +299,23 @@ section[data-testid="stSidebar"] > div { padding-top: 1rem; }
 
 /* ── Buttons ───────────────────────────────────────────────── */
 .stButton > button, .stDownloadButton > button {
-    background: var(--bg-card) !important;
-    border: 1px solid var(--border-accent) !important;
-    color: var(--accent-gold) !important;
-    font-family: 'JetBrains Mono', monospace !important;
+    background: var(--bg-tertiary) !important;
+    border: 1px solid var(--border-subtle) !important;
+    color: var(--text-primary) !important;
+    font-family: 'Outfit', sans-serif !important;
     font-size: 0.82rem !important;
     font-weight: 500 !important;
-    letter-spacing: 0.1em !important;
+    letter-spacing: 0.08em !important;
     text-transform: uppercase !important;
     border-radius: 8px !important;
-    padding: 10px 22px !important;
+    padding: 11px 22px !important;
     transition: all 0.2s ease !important;
 }
 .stButton > button:hover, .stDownloadButton > button:hover {
     background: rgba(212,175,55,0.10) !important;
-    border-color: var(--accent-gold) !important;
+    border-color: var(--accent-gold-dark) !important;
+    color: var(--accent-gold) !important;
     transform: translateY(-1px);
-    box-shadow: var(--shadow-gold);
 }
 
 /* ── Inputs ────────────────────────────────────────────────── */
@@ -319,7 +324,20 @@ section[data-testid="stSidebar"] > div { padding-top: 1rem; }
     background: var(--bg-tertiary) !important;
     border: 1px solid var(--border-subtle) !important;
     color: var(--text-primary) !important;
-    font-family: 'JetBrains Mono', monospace !important;
+    font-family: 'Outfit', sans-serif !important;
+    font-size: 0.9rem !important;
+    transition: all 0.15s ease !important;
+}
+.stSelectbox > div > div:focus-within,
+.stNumberInput > div > div > input:focus,
+.stTextInput > div > div > input:focus {
+    border-color: var(--accent-gold) !important;
+    box-shadow: 0 0 0 2px rgba(212,175,55,0.12) !important;
+}
+/* ── Radio / Checkbox ──────────────────────────────────────── */
+.stRadio > label, .stCheckbox > label {
+    font-family: 'Outfit', sans-serif !important;
+    font-size: 0.9rem !important;
 }
 .stFileUploader {
     background: var(--bg-card);
@@ -365,6 +383,66 @@ hr {
     font-size: 0.72rem;
     color: var(--text-muted);
     letter-spacing: 0.08em;
+}
+
+/* ── Custom Status Badges ──────────────────────────────────── */
+.hk-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin: 8px 0;
+}
+.hk-status-success {
+    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16,185,129,0.25);
+    color: var(--accent-emerald);
+}
+.hk-status-warning {
+    background: rgba(212,175,55,0.08);
+    border: 1px solid rgba(212,175,55,0.25);
+    color: var(--accent-gold);
+}
+.hk-status-error {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.25);
+    color: var(--accent-ruby);
+}
+
+/* ── Sidebar Form Cards ────────────────────────────────────── */
+.hk-form-section {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 1.5rem;
+}
+
+/* ── Input Focus Enhancement ───────────────────────────────── */
+.stSelectbox input:focus,
+.stNumberInput input:focus,
+.stTextInput input:focus {
+    border-color: var(--accent-gold-light) !important;
+    box-shadow: 0 0 0 2px rgba(212,175,55,0.15) !important;
+}
+
+/* ── Table Enhancement ─────────────────────────────────────── */
+.hk-table-header {
+    background: rgba(255,255,255,0.04);
+    border-bottom: 2px solid var(--border-accent);
+    font-weight: 600;
+    font-family: 'Outfit', sans-serif;
+}
+.hk-table-row {
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background 0.15s ease;
+}
+.hk-table-row:hover {
+    background: rgba(255,255,255,0.02);
 }
 </style>
 """
@@ -490,22 +568,23 @@ LOT_SIZES: dict[str, int] = {
 
 def fetch_nse_lot_sizes() -> dict[str, int]:
     """Fetch NSE F&O lot sizes using NseKit and update LOT_SIZES."""
+    updated_count = 0
     try:
         import NseKit
         get = NseKit.Nse()
         lots_df = get.fno_eom_lot_size()
         if lots_df is None or (hasattr(lots_df, 'empty') and lots_df.empty):
-            st.error("❌ Error fetching F&O Lot Size: NSE API returned empty data")
+            st.markdown('<div class="hk-status-badge hk-status-error">✗ NSE API returned empty data</div>', unsafe_allow_html=True)
             return LOT_SIZES
         lots_df.columns = [c.strip() for c in lots_df.columns]
     except Exception as e:
-        st.error(f"❌ Error fetching F&O Lot Size: {e}")
+        st.markdown(f'<div class="hk-status-badge hk-status-error">✗ {str(e)[:60]}</div>', unsafe_allow_html=True)
         return LOT_SIZES
 
     try:
         sym_col = "SYMBOL"
         if sym_col not in lots_df.columns:
-            st.error("❌ SYMBOL column not found in NSE F&O data")
+            st.markdown('<div class="hk-status-badge hk-status-error">✗ SYMBOL column not found</div>', unsafe_allow_html=True)
             return LOT_SIZES
 
         lot_col = None
@@ -515,7 +594,7 @@ def fetch_nse_lot_sizes() -> dict[str, int]:
                 break
 
         if not lot_col:
-            st.error("❌ No lot size column found in NSE F&O data")
+            st.markdown('<div class="hk-status-badge hk-status-error">✗ No lot size column found</div>', unsafe_allow_html=True)
             return LOT_SIZES
 
         lots_df = lots_df[[sym_col, lot_col]].copy()
@@ -528,11 +607,17 @@ def fetch_nse_lot_sizes() -> dict[str, int]:
                 lot = int(float(row["lot"]))
                 if sym and lot > 0:
                     LOT_SIZES[sym] = lot
+                    updated_count += 1
             except (ValueError, TypeError):
                 pass
-        st.success(f"✅ Updated {len([k for k in LOT_SIZES if k])} lot sizes from NSE (using column: {lot_col})")
+        st.session_state.lot_sizes_from_nse = True
+        st.session_state.nse_lot_col = lot_col
+        st.markdown(
+            f'<div class="hk-status-badge hk-status-success">✓ Updated {updated_count} symbols from NSE • {lot_col}</div>',
+            unsafe_allow_html=True
+        )
     except Exception as e:
-        st.error(f"❌ Error parsing lot sizes: {e}")
+        st.markdown(f'<div class="hk-status-badge hk-status-error">✗ Parse error: {str(e)[:45]}</div>', unsafe_allow_html=True)
 
     return LOT_SIZES
 
@@ -1242,7 +1327,21 @@ with st.sidebar:
     )
 
     # Lot Sizes (dynamic from NSE API)
-    st.markdown('<div class="hemrek-section-title">Lot Sizes</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hemrek-section-title hemrek-section-title-accent">Lot Sizes</div>', unsafe_allow_html=True)
+
+    # Show NSE fetch status
+    if st.session_state.get("lot_sizes_from_nse", False):
+        col_used = st.session_state.get("nse_lot_col", "unknown")
+        st.markdown(
+            f'<div class="hk-status-badge hk-status-success">✓ Live NSE data • {col_used}</div>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            '<div class="hk-status-badge hk-status-warning">⚠ Hardcoded lot sizes</div>',
+            unsafe_allow_html=True
+        )
+
     col_ls1, col_ls2 = st.columns([1, 1])
     with col_ls1:
         if st.button("↻ Refresh from NSE", use_container_width=True, help="Fetch latest lot sizes from NSE API"):
